@@ -5,9 +5,18 @@ import './App.css'
 function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [issues, setIssues] = useState([])
+  const [savedIssues, setSavedIssues] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('issuelens-saved-issues')) || []
+    } catch {
+      return []
+    }
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
+  const [repositoryDetails, setRepositoryDetails] = useState(null)
+  const [showSavedOnly, setShowSavedOnly] = useState(false)
 
   async function handleSearch(event) {
     event.preventDefault()
@@ -23,6 +32,7 @@ function App() {
     setError('')
     setHasSearched(true)
     setIssues([])
+    setRepositoryDetails(null)
 
     try {
       const response = await fetch(
@@ -36,11 +46,43 @@ function App() {
       }
 
       setIssues(data.items || [])
+
+      const firstIssue = (data.items || [])[0]
+
+      if (firstIssue?.repository) {
+        const [owner, repo] = firstIssue.repository.split('/')
+
+        const repoResponse = await fetch(
+          `http://127.0.0.1:8000/api/repository/?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`
+        )
+
+        const repoData = await repoResponse.json()
+
+        if (repoResponse.ok) {
+          setRepositoryDetails(repoData)
+        }
+      }
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSaveIssue = (issue) => {
+    const alreadySaved = savedIssues.some(
+      (savedIssue) => savedIssue.url === issue.url
+    )
+
+    const updatedSavedIssues = alreadySaved
+      ? savedIssues.filter((savedIssue) => savedIssue.url !== issue.url)
+      : [...savedIssues, issue]
+
+    setSavedIssues(updatedSavedIssues)
+    localStorage.setItem(
+      'issuelens-saved-issues',
+      JSON.stringify(updatedSavedIssues)
+    )
   }
 
   return (
@@ -73,7 +115,36 @@ function App() {
         </section>
 
         <section className="results-section">
+          
+          <div className="view-switcher">
+            <button type="button" onClick={() => setShowSavedOnly(false)}>
+              Search issues
+            </button>
+
+            <button type="button" onClick={() => setShowSavedOnly(true)}>
+              Saved issues ({savedIssues.length})
+            </button>
+          </div>
+
           <h3>{hasSearched ? 'Search results' : 'Start exploring'}</h3>
+
+          {repositoryDetails && (
+            <div className="repository-summary">
+              <h4>{repositoryDetails.name}</h4>
+              <p>{repositoryDetails.description}</p>
+              <p>
+                ⭐ {repositoryDetails.stars.toLocaleString()} stars
+                {' · '}
+                {repositoryDetails.language || 'Unknown language'}
+                {' · '}
+                {repositoryDetails.open_issues.toLocaleString()} open issues
+              </p>
+              <a href={repositoryDetails.url} target="_blank" rel="noreferrer">
+                View repository on GitHub →
+              </a>
+            </div>
+          )}
+
 
           {loading && <p>Searching GitHub for open issues...</p>}
 
@@ -91,7 +162,7 @@ function App() {
 
           {!loading && issues.length > 0 && (
             <div className="issue-list">
-              {issues.map((issue) => (
+              {(showSavedOnly ? savedIssues : issues).map((issue) => (
                 <article className="issue-card" key={issue.url}>
                   <h4>
                     <a href={issue.url} target="_blank" rel="noreferrer">
@@ -108,6 +179,15 @@ function App() {
                       </span>
                     ))}
                   </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => handleSaveIssue(issue)}
+                  >
+                    {savedIssues.some((savedIssue) => savedIssue.url === issue.url)
+                      ? 'Remove saved issue'
+                      : 'Save issue'}
+                  </button>
 
                   <a
                     className="issue-link"
