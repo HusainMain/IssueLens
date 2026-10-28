@@ -2,6 +2,7 @@
 import json
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from datetime import datetime, timezone
 
 
 def get_repository(owner, repo):
@@ -24,6 +25,7 @@ def get_repository(owner, repo):
             "description": data["description"],
             "stars": data["stargazers_count"],
             "open_issues": data["open_issues_count"],
+            "updated_at": data["updated_at"],
             "language": data["language"],
             "url": data["html_url"]
         }
@@ -110,6 +112,21 @@ def get_repository_issues(owner, repo, limit=10):
     try:
         with urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
+        issues = [
+            issue for issue in data
+            if "pull_request" not in issue
+        ]
+
+        recently_updated = sum(
+            1
+            for issue in issues
+            if (
+                datetime.now(timezone.utc)
+                - datetime.fromisoformat(
+                    issue["updated_at"].replace("Z", "+00:00")
+                )
+            ).days <= 30
+        )
 
         return {
             "items": [
@@ -127,7 +144,9 @@ def get_repository_issues(owner, repo, limit=10):
                 }
                 for issue in data
                 if "pull_request" not in issue
-            ]
+            ],
+            "sampled_issue_count": len(issues),
+            "recently_updated_count": recently_updated,
         }
 
     except HTTPError as error:

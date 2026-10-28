@@ -2,6 +2,27 @@
 import { useState } from 'react'
 import './App.css'
 
+function getRepositoryActivity(updatedAt) {
+  const lastUpdated = new Date(updatedAt)
+  const daysSinceUpdate = Math.floor(
+    (Date.now() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24)
+  )
+
+  if (daysSinceUpdate < 0) return 'Update date is in the future'
+  if (daysSinceUpdate === 0) return 'Updated today'
+  if (daysSinceUpdate <= 30) return `Updated ${daysSinceUpdate} days ago`
+  if (daysSinceUpdate <= 90) return 'Updated within the last 3 months'
+  if (daysSinceUpdate <= 180) return 'No update in 3–6 months'
+  return 'No update in over 6 months'
+}
+
+function getIssueBacklog(openIssues) {
+  if (openIssues < 10) return 'Very few open issues'
+  if (openIssues < 50) return 'Small issue backlog'
+  if (openIssues < 200) return 'Moderate issue backlog'
+  return 'Large issue backlog'
+}
+
 function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [issues, setIssues] = useState([])
@@ -16,7 +37,10 @@ function App() {
   const [error, setError] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
   const [repositoryDetails, setRepositoryDetails] = useState(null)
+  const [issueActivity, setIssueActivity] = useState(null)
   const [showSavedOnly, setShowSavedOnly] = useState(false)
+  const [explanations, setExplanations] = useState({})
+  const [explainingIssue, setExplainingIssue] = useState(null)
 
   async function handleSearch(event) {
     event.preventDefault()
@@ -33,6 +57,7 @@ function App() {
     setHasSearched(true)
     setIssues([])
     setRepositoryDetails(null)
+    setIssueActivity(null)
 
     try {
       const response = await fetch(
@@ -60,6 +85,16 @@ function App() {
 
         if (repoResponse.ok) {
           setRepositoryDetails(repoData)
+
+          const activityResponse = await fetch(
+            `http://127.0.0.1:8000/api/repository/issues/?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&limit=10`
+          )
+
+          const activityData = await activityResponse.json()
+
+          if (activityResponse.ok) {
+            setIssueActivity(activityData)
+          }
         }
       }
     } catch (err) {
@@ -83,6 +118,42 @@ function App() {
       'issuelens-saved-issues',
       JSON.stringify(updatedSavedIssues)
     )
+  }
+
+  async function handleExplainIssue(issue) {
+    setExplainingIssue(issue.url)
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/explain/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: issue.title,
+          url: issue.url,
+          repository: issue.repository,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to explain issue.')
+      }
+
+      setExplanations((previous) => ({
+        ...previous,
+        [issue.url]: data.explanation,
+      }))
+    } catch (error) {
+      setExplanations((previous) => ({
+        ...previous,
+        [issue.url]: `Error: ${error.message}`,
+      }))
+    } finally {
+      setExplainingIssue(null)
+    }
   }
 
   return (
@@ -139,6 +210,28 @@ function App() {
                 {' · '}
                 {repositoryDetails.open_issues.toLocaleString()} open issues
               </p>
+              <p>
+                Last updated:{' '}
+                {new Date(repositoryDetails.updated_at).toLocaleDateString()}
+              </p>
+              <p>
+                Activity: {getRepositoryActivity(repositoryDetails.updated_at)}
+              </p>
+              <p>
+                Issue backlog: {getIssueBacklog(repositoryDetails.open_issues)}
+              </p>
+              {issueActivity && issueActivity.sampled_issue_count > 0 && (
+                <p>
+                  Recently updated issues:{' '}
+                  {Math.round(
+                    (issueActivity.recently_updated_count /
+                      issueActivity.sampled_issue_count) *
+                      100
+                  )}
+                  % ({issueActivity.recently_updated_count} of{' '}
+                  {issueActivity.sampled_issue_count} sampled issues updated in the last 30 days)
+                </p>
+              )}
               <a href={repositoryDetails.url} target="_blank" rel="noreferrer">
                 View repository on GitHub →
               </a>
@@ -188,6 +281,22 @@ function App() {
                       ? 'Remove saved issue'
                       : 'Save issue'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExplainIssue(issue)}
+                    disabled={explainingIssue === issue.url}
+                  >
+                    {explainingIssue === issue.url
+                      ? 'Generating explanation...'
+                      : 'Explain with AI'}
+                  </button>
+
+                  {explanations[issue.url] && (
+                    <div className="ai-explanation">
+                      <h5>AI Explanation</h5>
+                      <p>{explanations[issue.url]}</p>
+                    </div>
+                  )}
 
                   <a
                     className="issue-link"

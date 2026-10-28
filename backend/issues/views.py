@@ -1,6 +1,8 @@
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from .ai_service import explain_issue
+from groq import APIConnectionError, APIStatusError, RateLimitError
 
 from .github_service import (
     get_repository,
@@ -112,3 +114,55 @@ def search_github_issues(request):
         return Response(result, status=502)
 
     return Response(result)
+
+
+
+@api_view(['POST'])
+def explain_issue_view(request):
+    issue = request.data
+
+    required_fields = ['title', 'url', 'repository']
+
+    for field in required_fields:
+        if not issue.get(field):
+            return Response(
+                {"error": f"{field} is required"},
+                status=400
+            )
+    try:
+        result = explain_issue(issue)
+        return Response(result)
+
+    except ValueError as error:
+        return Response(
+            {"error": str(error)},
+            status=500
+        )
+
+    except RateLimitError:
+        return Response(
+            {"error": "Groq rate limit reached. Please try again later."},
+            status=429
+        )
+
+    except APIConnectionError:
+        return Response(
+            {"error": "Could not connect to the AI service."},
+            status=503
+        )
+
+    except APIStatusError as error:
+        print(
+            f"Groq API error: status={error.status_code}, "
+            f"message={error.message}"
+        )
+        return Response(
+            {"error": "The AI service returned an error."},
+            status=502
+        )
+
+    except (APIConnectionError, APIStatusError, RateLimitError) as e:
+        return Response(
+            {"error": f"Error occurred while fetching AI explanation: {str(e)}"},
+            status=503
+        )
