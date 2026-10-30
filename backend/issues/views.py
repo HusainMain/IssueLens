@@ -7,6 +7,7 @@ from groq import APIConnectionError, APIStatusError, RateLimitError
 from .github_service import (
     get_repository,
     get_repository_issues,
+    get_issue_details,
     search_issues,
 )
 
@@ -121,7 +122,12 @@ def search_github_issues(request):
 def explain_issue_view(request):
     issue = request.data
 
-    required_fields = ['title', 'url', 'repository']
+    required_fields = [
+        'title',
+        'url',
+        'repository',
+        'number',
+    ]
 
     for field in required_fields:
         if not issue.get(field):
@@ -129,14 +135,36 @@ def explain_issue_view(request):
                 {"error": f"{field} is required"},
                 status=400
             )
+
     try:
-        result = explain_issue(issue)
+        # Extract repository owner and name
+        owner, repo = issue['repository'].split('/', 1)
+
+        # Fetch complete issue details from GitHub
+        issue_details = get_issue_details(
+            owner,
+            repo,
+            issue['number']
+        )
+
+        if "error" in issue_details:
+            return Response(
+                issue_details,
+                status=400
+            )
+
+        # Add repository information to the issue details
+        issue_details["repository"] = issue["repository"]
+
+        # Generate AI explanation using actual issue content
+        result = explain_issue(issue_details)
+
         return Response(result)
 
     except ValueError as error:
         return Response(
             {"error": str(error)},
-            status=500
+            status=400
         )
 
     except RateLimitError:
@@ -159,10 +187,4 @@ def explain_issue_view(request):
         return Response(
             {"error": "The AI service returned an error."},
             status=502
-        )
-
-    except (APIConnectionError, APIStatusError, RateLimitError) as e:
-        return Response(
-            {"error": f"Error occurred while fetching AI explanation: {str(e)}"},
-            status=503
         )

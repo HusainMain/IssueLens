@@ -83,6 +83,7 @@ def search_issues(query, limit=10):
                     ],
                     "created_at": issue["created_at"],
                     "updated_at": issue["updated_at"],
+                    "number": issue["number"],
                 }
                 for issue in data["items"]
                 if "pull_request" not in issue
@@ -156,3 +157,62 @@ def get_repository_issues(owner, repo, limit=10):
 
     except (URLError, TimeoutError):
         return {"error": "Could not connect to GitHub"}
+
+def get_issue_details(owner, repo, issue_number):
+    issue_url = (
+        f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}"
+    )
+
+    comments_url = (
+        f"https://api.github.com/repos/{owner}/{repo}/issues/"
+        f"{issue_number}/comments?per_page=10"
+    )
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "IssueLens",
+    }
+
+    try:
+        # Fetch the issue itself
+        issue_request = Request(issue_url, headers=headers)
+
+        with urlopen(issue_request, timeout=10) as response:
+            issue_data = json.loads(response.read().decode("utf-8"))
+
+        # Fetch the discussion comments
+        comments_request = Request(comments_url, headers=headers)
+
+        with urlopen(comments_request, timeout=10) as response:
+            comments_data = json.loads(response.read().decode("utf-8"))
+
+        return {
+            "number": issue_data["number"],
+            "title": issue_data["title"],
+            "body": issue_data.get("body") or "",
+            "url": issue_data["html_url"],
+            "state": issue_data["state"],
+            "author": issue_data["user"]["login"],
+            "labels": [
+                label["name"] for label in issue_data.get("labels", [])
+            ],
+            "comments": [
+                {
+                    "author": comment["user"]["login"],
+                    "body": comment.get("body") or "",
+                }
+                for comment in comments_data
+            ],
+        }
+
+    except HTTPError as error:
+        if error.code == 404:
+            return {"error": "Issue not found."}
+
+        if error.code == 403:
+            return {"error": "GitHub API rate limit reached."}
+
+        return {"error": f"GitHub API returned status {error.code}."}
+
+    except (URLError, TimeoutError):
+        return {"error": "Could not connect to GitHub."}

@@ -1,5 +1,7 @@
 
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './App.css'
 
 function getRepositoryActivity(updatedAt) {
@@ -133,6 +135,7 @@ function App() {
           title: issue.title,
           url: issue.url,
           repository: issue.repository,
+          number: issue.number
         }),
       })
 
@@ -294,7 +297,9 @@ function App() {
                   {explanations[issue.url] && (
                     <div className="ai-explanation">
                       <h5>AI Explanation</h5>
-                      <p>{explanations[issue.url]}</p>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {explanations[issue.url]}
+                      </ReactMarkdown>
                     </div>
                   )}
 
